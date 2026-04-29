@@ -1,0 +1,123 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --brand-teal: #29a871;
+  --brand-black: #1d1d1f;
+  --brand-blue: #0071e3;
+  --brand-white: #fbfbfd;
+  --brand-gray-light: #f5f5f7;
+  --brand-gray-dark: #6e6e73;
+}
+
+html,
+body {
+  background: var(--brand-gray-light);
+  color: var(--brand-black);
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue',
+    sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+button {
+  font-family: inherit;
+}
+
+textarea,
+input,
+select {
+  font-family: inherit;
+}
+
+/* Score colour scale */
+.score-critical {
+  color: #e24b4a;
+}
+.score-poor {
+  color: #ef9f27;
+}
+.score-fair {
+  color: #ba7517;
+}
+.score-good {
+  color: #29a871;
+}
+.score-excellent {
+  color: #1d9e75;
+}
+
+.btn-primary {
+  background: #29a871;
+  color: white;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-weight: 600;
+  transition: background 0.15s ease;
+}
+.btn-primary:hover:not(:disabled) {
+  background: #1f8a5d;
+}
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: white;
+  color: var(--brand-black);
+  border: 1px solid #e5e5e7;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-weight: 500;
+  transition: background 0.15s ease;
+}
+.btn-secondary:hover:not(:disabled) {
+  background: var(--brand-gray-light);
+}
+
+.card {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #e5e5e7;
+  border-radius: 8px;
+  background: white;
+  font-size: 14px;
+}
+.input:focus {
+  outline: none;
+  border-color: #29a871;
+  box-shadow: 0 0 0 3px rgba(41, 168, 113, 0.15);
+}
+
+textarea.input {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.label {
+  display: block;
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 6px;
+  color: var(--brand-black);
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--brand-gray-dark);
+  margin-top: 4px;
+}
+
+/* Hide scrollbar in tab nav */
+.tab-row::-webkit-scrollbar {
+  display: none;
+}

@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//usr/local/**)",
+      "Bash(find / -name \"node\" -type f)",
+      "Bash(npm --version)",
+      "Bash(npm install *)",
+      "Bash(curl -s http://localhost:3000)",
+      "Bash(pkill -f \"next dev\")",
+      "Bash(npx tsc *)",
+      "mcp__Claude_in_Chrome__browser_batch"
+    ]
+  }
+}
