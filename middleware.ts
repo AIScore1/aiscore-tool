@@ -24,10 +24,10 @@ export async function middleware(request: NextRequest) {
           return request.cookies.get(name)?.value;
         },
         set(name: string, value: string, options: CookieOptions) {
-          response = response.cookies.set(name, value, options);
+          response.cookies.set(name, value, options);
         },
         remove(name: string, options: CookieOptions) {
-          response = response.cookies.delete(name);
+          response.cookies.delete(name);
         },
       },
     }
