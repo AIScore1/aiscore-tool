@@ -1,15 +1,12 @@
 'use client';
 
-export const dynamic = 'force-dynamic';
-
 import { createBrowserClient } from '@supabase/ssr';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-export default function LoginPage() {
+export default function LoginPage({ searchParams }: { searchParams: Record<string, string | string[]> }) {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const redirect = searchParams.get('redirect') || '/';
+  const redirect = Array.isArray(searchParams.redirect) ? searchParams.redirect[0] : (searchParams.redirect || '/');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
