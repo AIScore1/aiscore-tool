@@ -119,48 +119,73 @@ export async function POST(req: NextRequest) {
           crawl,
         });
 
-        send({ type: 'progress', percent: 90, message: 'Running AI analysis (1/4)...' });
-        const executiveSummary = await generateExecutiveSummary({
-          domain: crawl.domain,
-          businessType: body.businessType ?? body.sector ?? 'business',
-          score,
-          grade: grade(score),
-          pagesCrawled: crawl.pages.length,
-          scores: categoryScores,
-          critical: issues.critical,
-          high: issues.high,
-          clientName: body.businessName,
-        });
+        // Run all 4 AI calls in parallel — they are fully independent of each other.
+        // Progress advances from 90 → 98 as each one completes.
+        send({ type: 'progress', percent: 90, message: 'Running AI analysis (0/4)...' });
+        let aiDone = 0;
+        const tickAI = () => {
+          aiDone++;
+          send({
+            type: 'progress',
+            percent: 90 + aiDone * 2, // 92, 94, 96, 98
+            message: `Running AI analysis (${aiDone}/4)...`,
+          });
+        };
 
-        send({ type: 'progress', percent: 92, message: 'Running AI analysis (2/4)...' });
-        const actionPlan = await generateActionPlan({
-          findings: [...issues.critical, ...issues.high, ...issues.medium],
-          scores: categoryScores,
-          baseScore: score,
-          clientName: body.businessName,
-        });
+        const [summaryResult, actionResult, schemaResult, eeatResult] = await Promise.allSettled([
+          generateExecutiveSummary({
+            domain: crawl.domain,
+            businessType: body.businessType ?? body.sector ?? 'business',
+            score,
+            grade: grade(score),
+            pagesCrawled: crawl.pages.length,
+            scores: categoryScores,
+            critical: issues.critical,
+            high: issues.high,
+            clientName: body.businessName,
+          }).then((r) => { tickAI(); return r; }),
 
-        send({ type: 'progress', percent: 94, message: 'Running AI analysis (3/4)...' });
-        const schemaCode = await generateAuditSchemaCode({
-          domain: crawl.domain,
-          businessName: body.businessName || crawl.domain,
-          sector: body.sector || 'professional services',
-          location: body.location || 'South Africa',
-          services: body.services || [],
-          socialLinks: extractSameAs(crawl),
-          clientName: body.businessName,
-        });
+          generateActionPlan({
+            findings: [...issues.critical, ...issues.high, ...issues.medium],
+            scores: categoryScores,
+            baseScore: score,
+            clientName: body.businessName,
+          }).then((r) => { tickAI(); return r; }),
 
-        send({ type: 'progress', percent: 96, message: 'Running AI analysis (4/4)...' });
-        const eeatNarrative = await generateEEATNarrative({
-          domain: crawl.domain,
-          eeat,
-          platforms: platform,
-          brand,
-          clientName: body.businessName,
-        });
+          generateAuditSchemaCode({
+            domain: crawl.domain,
+            businessName: body.businessName || crawl.domain,
+            sector: body.sector || 'professional services',
+            location: body.location || 'South Africa',
+            services: body.services || [],
+            socialLinks: extractSameAs(crawl),
+            clientName: body.businessName,
+          }).then((r) => { tickAI(); return r; }),
 
-        send({ type: 'progress', percent: 98, message: 'Calculating final scores...' });
+          generateEEATNarrative({
+            domain: crawl.domain,
+            eeat,
+            platforms: platform,
+            brand,
+            clientName: body.businessName,
+          }).then((r) => { tickAI(); return r; }),
+        ]);
+
+        // Extract values, falling back gracefully if any call failed
+        const executiveSummary = summaryResult.status === 'fulfilled' ? summaryResult.value : '';
+        const actionPlan = actionResult.status === 'fulfilled' ? actionResult.value : {
+          quickWins: [], mediumTermActions: [], strategicInitiatives: [],
+          projectedScores: [
+            { phase: 'Current', timeline: 'Now', score, improvement: 0 },
+            { phase: 'After Quick Wins', timeline: '2 weeks', score: Math.min(100, score + 15), improvement: 15 },
+            { phase: 'After Medium-Term', timeline: '6 weeks', score: Math.min(100, score + 28), improvement: 13 },
+            { phase: 'After Strategic', timeline: '3 months', score: Math.min(100, score + 38), improvement: 10 },
+          ],
+        };
+        const schemaCode = schemaResult.status === 'fulfilled' ? schemaResult.value : { schemas: [] };
+        const eeatNarrative = eeatResult.status === 'fulfilled' ? eeatResult.value : '';
+
+        send({ type: 'progress', percent: 99, message: 'Calculating final scores...' });
 
         const id = `audit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         const audit: AuditReport = {

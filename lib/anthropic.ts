@@ -7,7 +7,8 @@ export const SONNET_MODEL = 'claude-sonnet-4-6';
 export function getClient(): Anthropic | null {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return null;
-  return new Anthropic({ apiKey });
+  // 45s per call — long enough for Sonnet, short enough to fail fast if hung
+  return new Anthropic({ apiKey, timeout: 45_000 });
 }
 
 interface RunOptions {
