@@ -6,6 +6,12 @@ import { calcCost, logApiCall } from '../store';
 const HAIKU_MODEL = 'claude-haiku-4-5-20251001';
 const MAX_BLOCKS = 30;
 const BATCH_SIZE = 6;
+const PER_CALL_TIMEOUT_MS = 30_000; // 30s — fail fast rather than hang the whole audit
+
+export interface CitabilityProgress {
+  completed: number;
+  total: number;
+}
 
 interface RawBlock {
   heading: string;
@@ -45,7 +51,8 @@ Return ONLY valid JSON array. No markdown. No explanation.`;
 
 export async function scoreCitability(
   crawl: CrawlResult,
-  clientName?: string
+  clientName?: string,
+  onProgress?: (p: CitabilityProgress) => void
 ): Promise<CitabilityResult> {
   const blocks = extractBlocks(crawl);
   if (blocks.length === 0) {
@@ -58,12 +65,51 @@ export async function scoreCitability(
     return heuristicCitability(blocks);
   }
 
-  const anthropic = new Anthropic({ apiKey });
-  const scored: CitabilityBlock[] = [];
+  const anthropic = new Anthropic({ apiKey, timeout: PER_CALL_TIMEOUT_MS });
 
+  // Build batches
+  const batches: RawBlock[][] = [];
   for (let i = 0; i < blocks.length; i += BATCH_SIZE) {
-    const batch = blocks.slice(i, i + BATCH_SIZE);
-    const userPrompt = `Domain: ${crawl.domain}. Score these ${batch.length} content blocks.
+    batches.push(blocks.slice(i, i + BATCH_SIZE));
+  }
+
+  // Run all batches in parallel (5x speedup vs sequential).
+  // Settled pattern means a single failed batch can't stall the whole audit.
+  let completed = 0;
+  onProgress?.({ completed: 0, total: batches.length });
+
+  const results = await Promise.allSettled(
+    batches.map(async (batch) => {
+      const scoredBatch = await scoreOneBatch(anthropic, batch, crawl.domain, clientName);
+      completed += 1;
+      onProgress?.({ completed, total: batches.length });
+      return scoredBatch;
+    })
+  );
+
+  const scored: CitabilityBlock[] = [];
+  for (const r of results) {
+    if (r.status === 'fulfilled') scored.push(...r.value);
+  }
+
+  if (scored.length === 0) return heuristicCitability(blocks);
+
+  const total = Math.round(
+    scored.reduce((a, b) => a + b.weighted_total, 0) / scored.length
+  );
+  const averageStatDensity = Math.round(
+    scored.reduce((a, b) => a + b.statistical_density, 0) / scored.length
+  );
+  return { total, blocks: scored, averageStatDensity };
+}
+
+async function scoreOneBatch(
+  anthropic: Anthropic,
+  batch: RawBlock[],
+  domain: string,
+  clientName?: string
+): Promise<CitabilityBlock[]> {
+  const userPrompt = `Domain: ${domain}. Score these ${batch.length} content blocks.
 Blocks: ${JSON.stringify(batch)}
 
 Score each 0–100:
@@ -77,70 +123,57 @@ Return ONLY:
 [{"heading":"...","answer_quality":N,"self_containment":N,"structural_readability":N,
 "statistical_density":N,"uniqueness":N,"weighted_total":N,"weakness":"one sentence"},...]`;
 
-    try {
-      const res = await anthropic.messages.create({
-        model: HAIKU_MODEL,
-        max_tokens: 2000,
-        system: SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: userPrompt }],
+  const res = await anthropic.messages.create({
+    model: HAIKU_MODEL,
+    max_tokens: 2000,
+    system: SYSTEM_PROMPT,
+    messages: [{ role: 'user', content: userPrompt }],
+  });
+  const inTokens = res.usage?.input_tokens ?? 0;
+  const outTokens = res.usage?.output_tokens ?? 0;
+  const { usd, zar } = calcCost('haiku', inTokens, outTokens);
+  await logApiCall({
+    id: Math.random().toString(36).substring(7),
+    timestamp: new Date().toISOString(),
+    model: 'haiku',
+    task: 'Citability scoring',
+    tokensIn: inTokens,
+    tokensOut: outTokens,
+    costUSD: usd,
+    costZAR: zar,
+    clientName,
+  });
+  const text = res.content
+    .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
+    .map((c) => c.text)
+    .join('');
+  const json = extractJsonArray(text);
+  const out: CitabilityBlock[] = [];
+  if (Array.isArray(json)) {
+    for (let j = 0; j < json.length && j < batch.length; j++) {
+      const item = json[j] as Partial<CitabilityBlock>;
+      out.push({
+        heading: batch[j].heading,
+        content: batch[j].content,
+        answer_quality: clamp(item.answer_quality),
+        self_containment: clamp(item.self_containment),
+        structural_readability: clamp(item.structural_readability),
+        statistical_density: clamp(item.statistical_density),
+        uniqueness: clamp(item.uniqueness),
+        weighted_total:
+          item.weighted_total ??
+          weightedAvg(
+            clamp(item.answer_quality),
+            clamp(item.self_containment),
+            clamp(item.structural_readability),
+            clamp(item.statistical_density),
+            clamp(item.uniqueness)
+          ),
+        weakness: item.weakness ?? '',
       });
-      const inTokens = res.usage?.input_tokens ?? 0;
-      const outTokens = res.usage?.output_tokens ?? 0;
-      const { usd, zar } = calcCost('haiku', inTokens, outTokens);
-      await logApiCall({
-        id: Math.random().toString(36).substring(7),
-        timestamp: new Date().toISOString(),
-        model: 'haiku',
-        task: 'Citability scoring',
-        tokensIn: inTokens,
-        tokensOut: outTokens,
-        costUSD: usd,
-        costZAR: zar,
-        clientName,
-      });
-      const text = res.content
-        .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
-        .map((c) => c.text)
-        .join('');
-      const json = extractJsonArray(text);
-      if (Array.isArray(json)) {
-        for (let j = 0; j < json.length && j < batch.length; j++) {
-          const item = json[j] as Partial<CitabilityBlock>;
-          scored.push({
-            heading: batch[j].heading,
-            content: batch[j].content,
-            answer_quality: clamp(item.answer_quality),
-            self_containment: clamp(item.self_containment),
-            structural_readability: clamp(item.structural_readability),
-            statistical_density: clamp(item.statistical_density),
-            uniqueness: clamp(item.uniqueness),
-            weighted_total:
-              item.weighted_total ??
-              weightedAvg(
-                clamp(item.answer_quality),
-                clamp(item.self_containment),
-                clamp(item.structural_readability),
-                clamp(item.statistical_density),
-                clamp(item.uniqueness)
-              ),
-            weakness: item.weakness ?? '',
-          });
-        }
-      }
-    } catch (e) {
-      // Skip batch on error
     }
   }
-
-  if (scored.length === 0) return heuristicCitability(blocks);
-
-  const total = Math.round(
-    scored.reduce((a, b) => a + b.weighted_total, 0) / scored.length
-  );
-  const averageStatDensity = Math.round(
-    scored.reduce((a, b) => a + b.statistical_density, 0) / scored.length
-  );
-  return { total, blocks: scored, averageStatDensity };
+  return out;
 }
 
 function clamp(n: number | undefined): number {

@@ -81,7 +81,15 @@ export async function POST(req: NextRequest) {
           body.businessName || crawl.domain.split('.')[0]
         );
         send({ type: 'progress', percent: 88, message: 'Scoring content citability...' });
-        const citability = await scoreCitability(crawl, body.businessName);
+        const citability = await scoreCitability(crawl, body.businessName, ({ completed, total }) => {
+          // Map citability sub-progress into the 88 → 90 window so the bar moves.
+          const pct = total > 0 ? 88 + (completed / total) * 2 : 88;
+          send({
+            type: 'progress',
+            percent: Math.round(pct * 10) / 10,
+            message: `Scoring content citability (${completed}/${total} batches)...`,
+          });
+        });
 
         const platform = platformScores({
           schema,
