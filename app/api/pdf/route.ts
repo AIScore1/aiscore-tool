@@ -14,12 +14,25 @@ export async function GET(req: NextRequest) {
 
   const html = renderAuditHtml(audit);
 
-  // Try puppeteer for PDF; fall back to HTML if not available
+  // PDF rendering pipeline:
+  // 1. On Vercel/Lambda: @sparticuz/chromium provides the Chromium binary;
+  //    puppeteer-core drives it (no bundled browser, fits in function size limits).
+  // 2. Locally (dev): fall back to HTML — running headless Chromium in dev requires
+  //    extra setup that isn't worth it for the operator workflow.
   try {
-    const puppeteer = await import('puppeteer');
-    const browser = await puppeteer.default.launch({
+    const isServerlessProd = !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_VERSION;
+    if (!isServerlessProd) {
+      throw new Error('PDF requires serverless environment; returning HTML locally');
+    }
+
+    const chromium = (await import('@sparticuz/chromium')).default;
+    const puppeteer = await import('puppeteer-core');
+
+    const browser = await puppeteer.launch({
+      args: chromium.args,
+      defaultViewport: chromium.defaultViewport,
+      executablePath: await chromium.executablePath(),
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
     });
     const page = await browser.newPage();
     await page.setContent(html, { waitUntil: 'networkidle0' });
@@ -36,6 +49,7 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (e) {
+    // Fall back to HTML so the operator always gets *something*
     return new Response(html, {
       headers: { 'Content-Type': 'text/html; charset=utf-8' },
     });
