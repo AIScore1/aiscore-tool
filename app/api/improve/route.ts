@@ -19,7 +19,8 @@ import { generatePromptLibrary } from '@/lib/generators/prompt-library-generator
 import { defaultExpiry, saveImprovement } from '@/lib/store';
 
 export const runtime = 'nodejs';
-export const maxDuration = 600;
+// Capped at 300s — Vercel hobby plan limit. Pro plan allows higher.
+export const maxDuration = 300;
 
 interface ImproveBody {
   profile: BusinessProfile;
