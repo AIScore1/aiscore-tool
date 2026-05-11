@@ -27,46 +27,43 @@ CORS restricted to aiscore.co.za (override with `PUBLIC_AUDIT_ORIGIN`). Rate lim
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL (from supabase.com dashboard) |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anonymous key (from supabase.com dashboard) |
 
+## Deployment
+
+**Hosted on Vercel.** Production URL: `https://aiscore-tool.vercel.app`. Auto-deploys on every push to `main`. Vercel honours the `maxDuration` directive in route handlers (capped at 300s on the hobby plan).
+
+> Previously hosted on Netlify; migrated 2026-05-11 because Netlify's serverless function timeouts (10s free / 26s Pro) couldn't fit a full audit. The Netlify deployment is decommissioned — do not use it.
+
 ## 🔴 CRITICAL: Supabase OAuth Configuration
 
-**This is critical for production deployments. Misconfiguration will cause authentication to fail.**
+Misconfiguration causes authentication to fail. The three things that have bitten us:
 
-### Production Deployment (https://aiscoreapp.netlify.app)
-Before deploying to production, Supabase must be correctly configured:
+### Pre-deployment checklist
+Whenever the production domain changes (e.g. swapping platforms or adding a custom domain):
+- [ ] Update Supabase **Site URL** at https://supabase.com/dashboard/project/pfizypkqzcfuebczgpba/auth/url-configuration
+- [ ] Add the new domain's `/auth/callback` to Supabase **Redirect URLs**
+- [ ] Update `NEXT_PUBLIC_APP_URL` env var on the deployment platform
+- [ ] Test login in an **incognito window** (fresh cookies)
+- [ ] Confirm the URL stays on the new domain after OAuth (no bounce to old domain)
+- [ ] Check Supabase Auth Logs for 500s after first test login
 
-1. **Site URL** — MUST match your production domain
-   - Go to: Supabase Dashboard → Authentication → URL Configuration
-   - Set **Site URL** to: `https://aiscoreapp.netlify.app` (NOT localhost, NOT http://)
-   - ⚠️ **COMMON MISTAKE**: This defaults to `http://localhost:3000` and must be explicitly changed
+### Current values
+| Setting | Production | Development |
+|---|---|---|
+| Supabase Site URL | `https://aiscore-tool.vercel.app` | `http://localhost:3000` |
+| Supabase Redirect URL | `https://aiscore-tool.vercel.app/auth/callback` | `http://localhost:3000/auth/callback` |
+| `NEXT_PUBLIC_APP_URL` | `https://aiscore-tool.vercel.app` | `http://localhost:3000` |
+| Env source | Vercel project environment variables | `.env.local` |
 
-2. **Redirect URLs** — Must include both dev and prod
-   - Add: `http://localhost:3000/auth/callback` (development)
-   - Add: `https://aiscoreapp.netlify.app/auth/callback` (production)
+### Gotchas that have actually broken production
+1. **Hidden tab character when pasting the Site URL.** Copy-paste from markdown introduced `\t` at the start of the URL value, causing Supabase to return 500 `unexpected_failure`. Triple-click the field, delete, then **type** the URL manually.
+2. **Stale Netlify session cookies.** After domain changes, test login in an incognito window — the browser may still hold a session for the old domain and redirect you there.
+3. **Site URL set to localhost in production.** The default. Must be explicitly changed.
 
-3. **Environment Variables** in Netlify
-   - Go to: Netlify Dashboard → Site Settings → Build & Deploy → Environment
-   - Set `NEXT_PUBLIC_SUPABASE_URL` = your production Supabase URL
-   - Set `NEXT_PUBLIC_SUPABASE_ANON_KEY` = your production Supabase key
-   - ✓ These are already configured in Netlify; verify they match your Supabase project
+### Debugging auth failures
+If login is broken, the Supabase **Auth Logs** are the source of truth:
+https://supabase.com/dashboard/project/pfizypkqzcfuebczgpba/logs/auth-logs
 
-### Development (localhost:3000)
-- Supabase Site URL: `http://localhost:3000`
-- Supabase Redirect URL: `http://localhost:3000/auth/callback`
-- Environment: Use `.env.local` with dev Supabase credentials
-
-### What happens if Site URL is wrong?
-- ❌ User clicks "Sign in with Google"
-- ❌ Supabase redirects to Site URL after OAuth instead of your production domain
-- ❌ Results in: "ERR_CONNECTION_REFUSED" or browser trying to reach wrong domain
-- ✓ Always verify Site URL before deploying
-
-### Pre-Deployment Checklist
-Before pushing to production:
-- [ ] Verify Supabase **Site URL** = `https://aiscoreapp.netlify.app`
-- [ ] Verify Supabase **Redirect URLs** include production callback
-- [ ] Verify Netlify environment variables are set
-- [ ] Test login locally (`npm run dev`) before deploying
-- [ ] After deploy, test login on production URL
+Filter to the last 15 minutes, expand any ERROR rows, read the `error` field. URL parse errors and redirect-not-allowed errors are common.
 
 ## Run
 ```bash
