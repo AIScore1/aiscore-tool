@@ -43,7 +43,7 @@ export async function OPTIONS() {
 
 export async function POST(req: NextRequest) {
   const ip = ipFromRequest(req);
-  const rate = rateLimitCheck(ip);
+  const rate = await rateLimitCheck(ip);
   if (!rate.allowed) {
     return NextResponse.json({ error: rate.reason }, { status: 429, headers: corsHeaders });
   }
